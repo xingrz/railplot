@@ -33,20 +33,34 @@ import {
 } from '../networkEditing';
 import type { Link, Project } from '../model';
 import RailEdge from './RailEdge.vue';
+import NetworkGrid from './NetworkGrid.vue';
+import {
+  gridStep,
+  laneWidth,
+  nodeHeight,
+  nodeCenter,
+  nodeWidth,
+  positionScale,
+  snapGrid,
+  nodeExtent,
+  snapNetworkPoint,
+} from '../networkGrid';
+import type { GridDrag } from '../networkGrid';
 
 const project = defineModel<Project>('project', { required: true });
 const props = defineProps<{ canUndo: boolean; canRedo: boolean }>();
 const emit = defineEmits<{ undo: []; redo: [] }>();
 const {
-  fitView,
+  fitBounds,
   zoomIn,
   zoomOut,
-  project: toGraphPosition,
+  screenToFlowCoordinate,
+  viewport,
   updateNodeInternals,
 } = useVueFlow('network-editor');
-const canvas = ref<HTMLDivElement>();
 const adding = ref(false);
-let fitAfterPlacement = false;
+// 首次加载和新增节点均等待图库测量后再显示完整线路列。
+let fitWhenNodesReady = true;
 
 const nodes = shallowRef<Node[]>([]);
 const edges = shallowRef<Edge[]>([]);
@@ -54,8 +68,7 @@ const selection = ref<{ stationId: string } | { link: Link } | null>(null);
 const connectingFrom = ref<string | null>(null);
 const error = ref('');
 const name = ref('');
-const laneWidth = 180;
-const positionScale = 5;
+const drag = ref<GridDrag | null>(null);
 
 const selectedStation = computed(() => {
   const selected = selection.value;
@@ -89,7 +102,25 @@ async function refresh() {
   await nextTick();
   updateNodeInternals();
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-  await fitView({ padding: 0.25, maxZoom: 1.2 });
+  await fitNetwork();
+}
+
+// 保留所有可吸附列的空间，即使当前只有主线，也能看到支线的落点。
+function fitNetwork() {
+  const positions = project.value.stations.map(
+    (station) => station.position * positionScale,
+  );
+  const top = Math.min(...positions);
+  const bottom = Math.max(...positions);
+  return fitBounds(
+    {
+      x: -40,
+      y: top - 50,
+      width: laneWidth * 3 + nodeWidth + 80,
+      height: bottom - top + nodeHeight + 100,
+    },
+    { padding: 0.08 },
+  );
 }
 
 defineExpose({ refresh });
@@ -183,21 +214,32 @@ function connect(connection: Connection) {
   connectingFrom.value = null;
 }
 
+function previewDrag({ node }: NodeDragEvent) {
+  const station = project.value.stations.find(
+    (station) => station.id === node.id,
+  )!;
+  const target = snapNetworkPoint(node.position);
+  drag.value = {
+    ...target,
+    fromPosition: station.position,
+    blocked: project.value.stations.some(
+      (other) => other.id !== node.id && other.position === target.position,
+    ),
+  };
+}
+
 function finishDrag({ node }: NodeDragEvent) {
+  const target = snapNetworkPoint(node.position);
+  drag.value = null;
   selection.value = { stationId: node.id };
   commit(() =>
-    moveStation(
-      project.value,
-      node.id,
-      Math.max(0, Math.min(3, Math.round(node.position.x / laneWidth))),
-      Math.max(0, Math.min(10000, Math.round(node.position.y / positionScale))),
-    ),
+    moveStation(project.value, node.id, target.lane, target.position),
   );
 }
 
 function add(direction: 'up' | 'down', branch: boolean) {
   if (!selectedStation.value) return;
-  fitAfterPlacement = true;
+  fitWhenNodesReady = true;
   const success = commit(() => {
     const result = addNeighbor(
       project.value,
@@ -208,7 +250,7 @@ function add(direction: 'up' | 'down', branch: boolean) {
     selection.value = { stationId: result.stationId };
     return result.project;
   });
-  if (!success) fitAfterPlacement = false;
+  if (!success) fitWhenNodesReady = false;
 }
 
 function insert() {
@@ -244,32 +286,29 @@ function placeStation(event: MouseEvent) {
     clearSelection();
     return;
   }
-  const bounds = canvas.value!.getBoundingClientRect();
-  const point = toGraphPosition({
-    x: event.clientX - bounds.left,
-    y: event.clientY - bounds.top,
+  // 点击位置对应车站圆心；图库按节点左上角吸附，先扣除圆心偏移。
+  const point = screenToFlowCoordinate({
+    x: event.clientX - nodeCenter * viewport.value.zoom,
+    y: event.clientY - nodeCenter * viewport.value.zoom,
   });
-  fitAfterPlacement = true;
+  const target = snapNetworkPoint(point);
+  fitWhenNodesReady = true;
   const success = commit(() => {
-    const result = addStationAt(
-      project.value,
-      Math.max(0, Math.min(3, Math.round(point.x / laneWidth))),
-      Math.max(0, Math.min(10000, Math.round(point.y / positionScale))),
-    );
+    const result = addStationAt(project.value, target.lane, target.position);
     selection.value = { stationId: result.stationId };
     return result.project;
   });
   if (success) {
     adding.value = false;
   } else {
-    fitAfterPlacement = false;
+    fitWhenNodesReady = false;
   }
 }
 
 // 新站尺寸由图库异步测量；等节点就绪再调整视野，不能仅等待 Vue 更新。
 function nodesReady() {
-  if (!fitAfterPlacement) return;
-  fitAfterPlacement = false;
+  if (!fitWhenNodesReady) return;
+  fitWhenNodesReady = false;
   void refresh();
 }
 
@@ -301,7 +340,7 @@ function keyboardEdit(event: KeyboardEvent) {
   if (stationId) {
     selectStation(stationId);
     const station = selectedStation.value!;
-    const distance = event.shiftKey ? 5 : 1;
+    const distance = gridStep * (event.shiftKey ? 5 : 1);
     const lane = Math.max(
       0,
       Math.min(
@@ -310,18 +349,21 @@ function keyboardEdit(event: KeyboardEvent) {
           (event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0),
       ),
     );
-    const position = Math.max(
-      0,
-      Math.min(
-        10000,
-        station.position +
-          (event.key === 'ArrowDown'
-            ? distance
-            : event.key === 'ArrowUp'
-              ? -distance
-              : 0),
-      ),
-    );
+    const vertical = event.key === 'ArrowUp' || event.key === 'ArrowDown';
+    const position = vertical
+      ? Math.max(
+          0,
+          Math.min(
+            10000,
+            Math.round(station.position / gridStep) * gridStep +
+              (event.key === 'ArrowDown'
+                ? distance
+                : event.key === 'ArrowUp'
+                  ? -distance
+                  : 0),
+          ),
+        )
+      : station.position;
     if (event.key.startsWith('Arrow'))
       commit(() => moveStation(project.value, station.id, lane, position));
   } else {
@@ -391,11 +433,7 @@ function saveName() {
       >
         <template #icon><Plus :size="15" /></template>
       </NButton>
-      <NButton
-        size="small"
-        quaternary
-        @click="fitView({ padding: 0.25, maxZoom: 1.2 })"
-      >
+      <NButton size="small" quaternary @click="fitNetwork()">
         <template #icon><Maximize2 :size="15" /></template>
         适合画布
       </NButton>
@@ -416,7 +454,6 @@ function saveName() {
   </NAlert>
   <div class="graph-editor-layout">
     <div
-      ref="canvas"
       class="network-canvas"
       aria-label="图形化线路编辑器"
       @keydown.capture="keyboardEdit"
@@ -424,6 +461,9 @@ function saveName() {
       <VueFlow
         id="network-editor"
         :nodes="nodes"
+        snap-to-grid
+        :snap-grid="snapGrid"
+        :node-extent="nodeExtent"
         :edges="edges"
         :connection-mode="ConnectionMode.Loose"
         :delete-key-code="null"
@@ -436,6 +476,8 @@ function saveName() {
         fit-view-on-init
         @nodes-initialized="nodesReady"
         @node-click="selectStation($event.node.id)"
+        @node-drag-start="previewDrag"
+        @node-drag="previewDrag"
         @node-drag-stop="finishDrag"
         @connect="connect"
         @edge-click="
@@ -445,17 +487,22 @@ function saveName() {
         "
         @pane-click="placeStation"
       >
+        <NetworkGrid :drag="drag" />
         <template #node-station="{ data, selected }">
           <div
             class="rail-node"
             :class="{ 'rail-node-selected': selected }"
-            :style="{ '--station-color': laneColors[data.lane] }"
+            :style="{
+              '--station-color': laneColors[data.lane],
+              width: `${nodeWidth}px`,
+              height: `${nodeHeight}px`,
+            }"
           >
             <Handle
               id="top"
               type="target"
               :position="Position.Top"
-              :style="{ left: '14px' }"
+              :style="{ left: `${nodeCenter}px` }"
             />
             <span class="rail-node-dot" />
             <span class="rail-node-name">{{ data.name }}</span>
@@ -463,7 +510,7 @@ function saveName() {
               id="bottom"
               type="source"
               :position="Position.Bottom"
-              :style="{ left: '14px' }"
+              :style="{ left: `${nodeCenter}px` }"
             />
           </div>
         </template>
@@ -562,6 +609,8 @@ function saveName() {
   gap: 20px;
 }
 .network-canvas {
+  position: relative;
+  overflow: hidden;
   height: 480px;
   min-height: 300px;
   border: 1px solid #dce3db;
@@ -580,8 +629,6 @@ function saveName() {
 }
 .rail-node {
   position: relative;
-  width: 150px;
-  height: 28px;
   display: flex;
   align-items: center;
   gap: 10px;

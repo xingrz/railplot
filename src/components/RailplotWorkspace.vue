@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import {
+  computed,
+  defineAsyncComponent,
+  onMounted,
+  onUnmounted,
+  ref,
+} from 'vue';
 import {
   NAlert,
   NButton,
@@ -26,7 +32,6 @@ import {
 } from 'lucide-vue-next';
 import Diagram from './Diagram.vue';
 import TrainEditor from './TrainEditor.vue';
-import NetworkEditor from './NetworkEditor.vue';
 import ProjectSettings from './ProjectSettings.vue';
 import {
   clone,
@@ -56,7 +61,8 @@ const {
 } = useProjectState();
 
 const diagram = ref<InstanceType<typeof Diagram>>();
-const networkEditor = ref<InstanceType<typeof NetworkEditor>>();
+const NetworkGraph = defineAsyncComponent(() => import('./NetworkGraph.vue'));
+const networkEditor = ref<{ refresh: () => Promise<void> }>();
 
 const zoom = ref(100);
 const labels = ref(true);
@@ -520,7 +526,7 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
       @after-enter="networkEditor?.refresh()"
     >
       <ProjectSettings v-if="modal === 'settings'" v-model:project="draft" />
-      <NetworkEditor
+      <NetworkGraph
         ref="networkEditor"
         v-else-if="modal === 'network'"
         v-model:project="draft"
@@ -528,7 +534,6 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
         :can-redo="historyIndex < history.length - 1"
         @undo="travel(-1)"
         @redo="travel(1)"
-        @applied="modal = null"
       />
       <template v-else>
         <p class="form-help">

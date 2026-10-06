@@ -5,17 +5,16 @@
 TypeScript + Vue 3 + Vite 的纯前端列车运行图编辑器。界面、错误信息与说明文档使用简体中文，源码标识符使用英文。许可证为 MIT。不要引入服务端、外部账户或联网存储作为基本使用前提。
 
 - `src/model.ts`：工程类型、导入校验、时间计算和坐标变换。
+- `src/networkGrid.ts`、`src/components/NetworkGrid.vue`：画布吸附坐标、站位格线、支线辅助列和拖动距离反馈。
 - `src/networkEditing.ts`：图形编辑的纯数据操作与列车引用保护。
 - `src/components/NetworkGraph.vue`：按需加载的 Vue Flow 画布；节点坐标是编辑预览，工程数据仍是唯一持久化来源。
-- `src/network.ts`：无副作用的批量建线预览与接轨校验。
 - `src/routeGeometry.ts`：分岔／汇合路径与线路配色。
-- `src/components/RouteBuilder.vue`：批量站名输入、线路预览与一次提交。
 - `src/demo.ts`：虚构演示工程，不可加入私人附件或未经许可的素材。
 - `src/components/Diagram.vue`：运行图 SVG 与横向缩放／滚动。
 - `src/components/RouteLayer.vue`：屏幕固定左栏与完整导出共用的线路 SVG；站点纵坐标必须与运行图一致。
 - `src/App.vue`：组件库主题与上下文提供者。
 - `src/components/RailplotWorkspace.vue`：工作区组合、文件与列车操作。
-- `src/components/TrainEditor.vue`、`NetworkEditor.vue`、`ProjectSettings.vue`：显式双向模型的领域表单。
+- `src/components/TrainEditor.vue`、`ProjectSettings.vue`：显式双向模型的领域表单。
 - `src/composables/useProjectState.ts`：草稿、有效快照、历史与本地保存。
 - `src/theme.ts`：Naive UI 的类型化主题；通用控件使用库组件，不覆盖内部类名。
 - `src/export.ts`：工程下载、PNG/SVG/PDF 导出。
@@ -35,9 +34,7 @@ TypeScript + Vue 3 + Vite 的纯前端列车运行图编辑器。界面、错误
 
 修改数据或绘图逻辑须运行 `npm test`，交付前运行 `npm run build` 和 `npm run format:check`。界面改动需要浏览器实测编辑、自动重绘、保存／重新打开与导出路径；视觉改动检查截图。临时浏览器产物存入忽略的 `output/`，不提交。保持 README 与实际能力一致，不把仅构建通过表述为业务流程通过。
 
-批量建线必须先预览、后一次提交，可一步撤销。复用已有站点时保留 ID、线路列及相对站位；同名歧义和倒序接轨须显式拒绝。有列车时不得替换整个网络。支线的分岔在起端转出，汇合在末端转入，屏幕与导出共用几何。
-
-图形编辑使用 Vue Flow 的拖拽、缩放和连线能力。一次拖动在松手时提交一次历史；键盘移动须通过同一领域操作提交，不能只改画布节点。新增、移动、改名保留列车引用；禁止删除仍被列车使用的车站。弹窗入场动画结束后重新测量端点，避免祖先缩放造成偏移。图库状态不得写入 `.railplot`，导出仍走原 SVG 流程。
+图形编辑使用 Vue Flow 的拖拽、缩放和连线能力。拖动过程按可见格线实时吸附，辅助线跟随平移和缩放；既有工程打开时不得量化或重排站位。一次拖动在松手时提交一次历史；键盘移动须通过同一领域操作提交，不能只改画布节点。新增、移动、改名保留列车引用；禁止删除仍被列车使用的车站。弹窗入场动画结束后重新测量端点，避免祖先缩放造成偏移。支线的分岔在起端转出，汇合在末端转入，屏幕与导出共用几何。图库状态不得写入 `.railplot`，导出仍走原 SVG 流程。
 
 ## 提交
 
