@@ -12,16 +12,23 @@ export function routeSegment(
 ) {
   const x1 = laneX(from.lane);
   const x2 = laneX(to.lane);
-  const bend = Math.min(26, (toY - fromY) / 2);
-  let path: string;
+  return {
+    path: railPath(x1, fromY, x2, toY),
+    color: laneColors[Math.max(from.lane, to.lane)],
+  };
+}
 
-  if (x1 === x2) {
-    path = `M${x1},${fromY}V${toY}`;
-  } else if (x1 < x2) {
-    path = `M${x1},${fromY}L${x2},${fromY + bend}V${toY}`;
-  } else {
-    path = `M${x1},${fromY}V${toY - bend}L${x2},${toY}`;
-  }
-
-  return { path, color: laneColors[Math.max(from.lane, to.lane)] };
+export function railPath(
+  x1: number,
+  fromY: number,
+  x2: number,
+  toY: number,
+  bendLimit = 26,
+): string {
+  if (fromY > toY) return railPath(x2, toY, x1, fromY, bendLimit);
+  const bend = Math.min(bendLimit, Math.abs(toY - fromY) / 2);
+  if (x1 === x2) return `M${x1},${fromY}V${toY}`;
+  return x1 < x2
+    ? `M${x1},${fromY}L${x2},${fromY + bend}V${toY}`
+    : `M${x1},${fromY}V${toY - bend}L${x2},${toY}`;
 }

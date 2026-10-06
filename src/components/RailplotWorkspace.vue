@@ -56,6 +56,7 @@ const {
 } = useProjectState();
 
 const diagram = ref<InstanceType<typeof Diagram>>();
+const networkEditor = ref<InstanceType<typeof NetworkEditor>>();
 
 const zoom = ref(100);
 const labels = ref(true);
@@ -506,16 +507,27 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
       :title="modalTitle"
       :aria-label="modalTitle"
       :style="{
-        width: modal === 'settings' ? '460px' : '740px',
+        width:
+          modal === 'settings'
+            ? '460px'
+            : modal === 'network'
+              ? '1040px'
+              : '740px',
         maxWidth: 'calc(100vw - 32px)',
       }"
       :content-style="{ maxHeight: '65vh', overflow: 'auto' }"
       @update:show="!$event && (modal = null)"
+      @after-enter="networkEditor?.refresh()"
     >
       <ProjectSettings v-if="modal === 'settings'" v-model:project="draft" />
       <NetworkEditor
+        ref="networkEditor"
         v-else-if="modal === 'network'"
         v-model:project="draft"
+        :can-undo="historyIndex > 0"
+        :can-redo="historyIndex < history.length - 1"
+        @undo="travel(-1)"
+        @redo="travel(1)"
         @applied="modal = null"
       />
       <template v-else>

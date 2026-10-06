@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, defineAsyncComponent, ref } from 'vue';
 import {
   NAlert,
   NButton,
@@ -18,9 +18,13 @@ import { planRoute } from '../network';
 import type { Project } from '../model';
 
 const project = defineModel<Project>('project', { required: true });
-const emit = defineEmits<{ applied: [] }>();
+const emit = defineEmits<{ applied: []; undo: []; redo: [] }>();
+const props = defineProps<{ canUndo: boolean; canRedo: boolean }>();
+const graph = ref<{ refresh: () => Promise<void> }>();
+defineExpose({ refresh: () => graph.value?.refresh() });
+const NetworkGraph = defineAsyncComponent(() => import('./NetworkGraph.vue'));
 const editError = ref('');
-const mode = ref<'batch' | 'detail'>('batch');
+const mode = ref<'graph' | 'batch' | 'detail'>('graph');
 const addOptions = [
   { label: '向下延伸', key: 'down' },
   { label: '向上延伸', key: 'up' },
@@ -102,9 +106,19 @@ function addLink() {
 
 <template>
   <NRadioGroup v-model:value="mode" size="small" aria-label="线路编辑方式">
+    <NRadioButton value="graph">图形编辑</NRadioButton>
     <NRadioButton value="batch">批量建线</NRadioButton>
     <NRadioButton value="detail">逐项调整</NRadioButton>
   </NRadioGroup>
+  <NetworkGraph
+    ref="graph"
+    v-if="mode === 'graph'"
+    v-model:project="project"
+    :can-undo="props.canUndo"
+    :can-redo="props.canRedo"
+    @undo="emit('undo')"
+    @redo="emit('redo')"
+  />
   <div v-show="mode === 'batch'">
     <RouteBuilder :project="project" @apply="applyRoute" />
   </div>
