@@ -42,7 +42,7 @@ import {
   timeString,
   trainColor,
 } from '../model';
-import type { Project, TimePointEdit, Train } from '../model';
+import type { Project, TimePointEdit, Train, TrainShift } from '../model';
 import { demo } from '../demo';
 import { useProjectState } from '../composables/useProjectState';
 import { exportImage, saveProject } from '../export';
@@ -178,15 +178,25 @@ function removeTrain() {
   selectedId.value = draft.value.trains[Math.max(0, i - 1)]?.id ?? '';
 }
 
-function shift(delta: number) {
-  if (!selected.value) return;
+function shiftById(edit: TrainShift) {
+  const index = draft.value.trains.findIndex(
+    (train) => train.id === edit.trainId,
+  );
+  if (index < 0 || errors.value.length) return;
 
   try {
-    const i = draft.value.trains.indexOf(selected.value);
-    draft.value.trains[i] = shiftTrain(selected.value, delta);
+    draft.value.trains[index] = shiftTrain(
+      draft.value.trains[index],
+      edit.delta,
+    );
+    selectedId.value = edit.trainId;
   } catch (e) {
     notice.value = (e as Error).message;
   }
+}
+
+function shift(delta: number) {
+  if (selected.value) shiftById({ trainId: selected.value.id, delta });
 }
 
 function openJson() {
@@ -424,6 +434,7 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
           :labels="labels"
           @select="toggleTrainSelection"
           @edit-time="editTimePoint"
+          @shift-train="shiftById"
         />
       </section>
       <section class="editor-grid">

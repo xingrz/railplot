@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import RouteLayer from './RouteLayer.vue';
 import {
   geometry,
   minutes,
   moveTimePoint,
+  shiftTrain,
+  trainShiftBounds,
   timePointBounds,
   timeString,
   trainColor,
 } from '../model';
-import type { Point, Project, TimePointEdit, Train } from '../model';
+import type {
+  Point,
+  Project,
+  TimePointEdit,
+  Train,
+  TrainShift,
+} from '../model';
 
 const props = defineProps<{
   project: Project;
@@ -21,6 +29,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [id: string];
   editTime: [edit: TimePointEdit];
+  shiftTrain: [edit: TrainShift];
 }>();
 
 const svg = ref<SVGSVGElement>();
@@ -28,6 +37,7 @@ const svg = ref<SVGSVGElement>();
 defineExpose({ svg });
 
 const viewport = ref<HTMLDivElement>();
+const scroll = ref<HTMLDivElement>();
 const viewportWidth = ref(1460);
 const g = computed(() =>
   geometry(props.project, viewportWidth.value, props.zoom),
@@ -42,7 +52,10 @@ onMounted(() => {
   if (viewport.value) resizeObserver.observe(viewport.value);
 });
 
-onUnmounted(() => resizeObserver?.disconnect());
+onUnmounted(() => {
+  cancelDrag();
+  resizeObserver?.disconnect();
+});
 
 const ticks = computed(() =>
   Array.from(
@@ -51,18 +64,48 @@ const ticks = computed(() =>
   ),
 );
 
-const drag = ref<{
+interface PointerStart {
   pointerId: number;
-  train: Train;
-  point: Point;
-  offset: number;
-  minute: number;
-} | null>(null);
+  clientX: number;
+  clientY: number;
+  moved: boolean;
+}
 
+type Gesture = PointerStart &
+  (
+    | { kind: 'pan'; scrollLeft: number }
+    | { kind: 'train'; train: Train; startX: number; delta: number }
+    | {
+        kind: 'point';
+        train: Train;
+        point: Point;
+        offset: number;
+        minute: number;
+      }
+  );
+
+const gesture = ref<Gesture | null>(null);
+const drag = computed(() =>
+  gesture.value?.kind === 'point' ? gesture.value : null,
+);
+const trainDrag = computed(() =>
+  gesture.value?.kind === 'train' ? gesture.value : null,
+);
+const activeId = computed(() =>
+  trainDrag.value?.moved ? trainDrag.value.train.id : props.selected,
+);
 const previewTrain = computed(() => {
-  if (!drag.value) return null;
-  const { train, point, minute } = drag.value;
-  return moveTimePoint(train, point.stopIndex, point.kind, minute);
+  const current = gesture.value;
+  if (current?.kind === 'point')
+    return moveTimePoint(
+      current.train,
+      current.point.stopIndex,
+      current.point.kind,
+      current.minute,
+    );
+  if (current?.kind === 'train')
+    return shiftTrain(current.train, current.delta);
+  return null;
 });
 
 function svgX(event: PointerEvent): number {
@@ -70,54 +113,132 @@ function svgX(event: PointerEvent): number {
   return ((event.clientX - bounds.left) / bounds.width) * g.value.width;
 }
 
-function beginDrag(event: PointerEvent, train: Train, point: Point) {
-  if (event.button !== 0) return;
-
-  drag.value = {
+function pointerStart(event: PointerEvent): PointerStart {
+  return {
     pointerId: event.pointerId,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    moved: false,
+  };
+}
+
+function capture(event: PointerEvent) {
+  viewport.value!.focus({ preventScroll: true });
+  viewport.value!.setPointerCapture(event.pointerId);
+}
+
+function beginPan(event: PointerEvent) {
+  if (event.button !== 0 || gesture.value) return;
+  event.preventDefault();
+  gesture.value = {
+    ...pointerStart(event),
+    kind: 'pan',
+    scrollLeft: scroll.value!.scrollLeft,
+  };
+  capture(event);
+}
+
+function beginTrainDrag(event: PointerEvent, train: Train) {
+  if (event.button !== 0 || gesture.value) return;
+  gesture.value = {
+    ...pointerStart(event),
+    kind: 'train',
+    train,
+    startX: svgX(event),
+    delta: 0,
+  };
+  capture(event);
+}
+
+function beginDrag(event: PointerEvent, train: Train, point: Point) {
+  if (event.button !== 0 || gesture.value) return;
+  gesture.value = {
+    ...pointerStart(event),
+    kind: 'point',
     train,
     point,
     offset: svgX(event) - point.x,
     minute: minutes(point.time),
   };
-  svg.value!.setPointerCapture(event.pointerId);
+  capture(event);
 }
 
 function updateDrag(event: PointerEvent) {
-  if (!drag.value || event.pointerId !== drag.value.pointerId) return;
+  const current = gesture.value;
+  if (!current || event.pointerId !== current.pointerId) return;
+  if (
+    Math.hypot(
+      event.clientX - current.clientX,
+      event.clientY - current.clientY,
+    ) >= 4
+  )
+    current.moved = true;
+  if (!current.moved) return;
 
-  const x = svgX(event) - drag.value.offset;
-  const requested = g.value.start + (x - g.value.left) / g.value.minuteWidth;
-  const { train, point } = drag.value;
-  const bounds = timePointBounds(train, point.stopIndex, point.kind);
-  drag.value.minute = Math.max(
-    bounds.min,
-    Math.min(bounds.max, Math.round(requested)),
-  );
+  if (current.kind === 'pan') {
+    scroll.value!.scrollLeft =
+      current.scrollLeft + current.clientX - event.clientX;
+  } else if (current.kind === 'train') {
+    const requested = Math.round(
+      (svgX(event) - current.startX) / g.value.minuteWidth,
+    );
+    const bounds = trainShiftBounds(current.train);
+    current.delta = Math.max(bounds.min, Math.min(bounds.max, requested));
+  } else {
+    const x = svgX(event) - current.offset;
+    const requested = g.value.start + (x - g.value.left) / g.value.minuteWidth;
+    const bounds = timePointBounds(
+      current.train,
+      current.point.stopIndex,
+      current.point.kind,
+    );
+    current.minute = Math.max(
+      bounds.min,
+      Math.min(bounds.max, Math.round(requested)),
+    );
+  }
 }
 
 function finishDrag(event: PointerEvent) {
-  if (!drag.value || event.pointerId !== drag.value.pointerId) return;
-
+  if (!gesture.value || event.pointerId !== gesture.value.pointerId) return;
   updateDrag(event);
-  const { train, point, minute } = drag.value;
-  if (minute !== minutes(point.time)) {
+  const current = gesture.value;
+  if (
+    current.kind === 'point' &&
+    current.minute !== minutes(current.point.time)
+  ) {
     emit('editTime', {
-      trainId: train.id,
-      stopIndex: point.stopIndex,
-      kind: point.kind,
-      minute,
+      trainId: current.train.id,
+      stopIndex: current.point.stopIndex,
+      kind: current.point.kind,
+      minute: current.minute,
     });
+  } else if (current.kind === 'pan' && !current.moved) {
+    emit('select', '');
+  } else if (current.kind === 'train') {
+    if (!current.moved) emit('select', current.train.id);
+    else if (current.delta)
+      emit('shiftTrain', { trainId: current.train.id, delta: current.delta });
   }
-  cancelDrag();
+  releaseGesture();
+}
+
+function releaseGesture() {
+  const current = gesture.value;
+  // 先清状态，避免 releasePointerCapture 触发的事件把成功操作当作取消。
+  gesture.value = null;
+  if (current && viewport.value?.hasPointerCapture(current.pointerId))
+    viewport.value.releasePointerCapture(current.pointerId);
 }
 
 function cancelDrag() {
-  if (drag.value && svg.value?.hasPointerCapture(drag.value.pointerId)) {
-    svg.value.releasePointerCapture(drag.value.pointerId);
-  }
-  drag.value = null;
+  if (gesture.value?.kind === 'pan' && scroll.value)
+    scroll.value.scrollLeft = gesture.value.scrollLeft;
+  releaseGesture();
 }
+
+// 导入、撤销或缩放发生在手势中时，不用过期快照覆盖新的工程。
+watch([() => props.project, () => props.zoom], cancelDrag);
 
 function nudgePoint(event: KeyboardEvent, train: Train, point: Point) {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -132,27 +253,35 @@ function nudgePoint(event: KeyboardEvent, train: Train, point: Point) {
 }
 
 const plots = computed(() =>
-  props.project.trains.map((source) => {
-    const train =
-      previewTrain.value?.id === source.id ? previewTrain.value : source;
-    const points = g.value.points(train);
-    let label = points.find((p) => p.x >= g.value.left && p.x <= g.value.right);
-    for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1];
-      const b = points[i];
-      const x = (a.x + b.x) / 2;
-      if (a.y !== b.y && x >= g.value.left + 15 && x <= g.value.right - 15) {
-        label = { ...a, x, y: (a.y + b.y) / 2 };
-        break;
+  props.project.trains
+    .map((source) => {
+      const train =
+        previewTrain.value?.id === source.id ? previewTrain.value : source;
+      const points = g.value.points(train);
+      let label = points.find(
+        (p) => p.x >= g.value.left && p.x <= g.value.right,
+      );
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1];
+        const b = points[i];
+        const x = (a.x + b.x) / 2;
+        if (a.y !== b.y && x >= g.value.left + 15 && x <= g.value.right - 15) {
+          label = { ...a, x, y: (a.y + b.y) / 2 };
+          break;
+        }
       }
-    }
-    return {
-      train,
-      points,
-      path: points.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' '),
-      label,
-    };
-  }),
+      return {
+        train,
+        points,
+        path: points.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' '),
+        label,
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(a.train.id === activeId.value) -
+        Number(b.train.id === activeId.value),
+    ),
 );
 
 function description(train: Train) {
@@ -160,8 +289,24 @@ function description(train: Train) {
 }
 </script>
 <template>
-  <div ref="viewport" class="diagram-viewport">
-    <div class="diagram-scroll" tabindex="0" aria-label="横向滚动运行图">
+  <div
+    ref="viewport"
+    class="diagram-viewport"
+    :class="{ 'diagram-dragging': gesture?.moved }"
+    tabindex="-1"
+    @pointerdown="beginPan"
+    @pointermove="updateDrag"
+    @pointerup="finishDrag"
+    @pointercancel="cancelDrag"
+    @lostpointercapture="cancelDrag"
+    @keydown.esc.capture.prevent.stop="cancelDrag"
+  >
+    <div
+      ref="scroll"
+      class="diagram-scroll"
+      tabindex="0"
+      aria-label="横向滚动运行图"
+    >
       <svg
         ref="svg"
         xmlns="http://www.w3.org/2000/svg"
@@ -169,10 +314,6 @@ function description(train: Train) {
         :width="g.width"
         :height="g.height"
         :style="{ width: `${g.width}px`, height: `${g.height}px` }"
-        @pointermove="updateDrag"
-        @pointerup="finishDrag"
-        @pointercancel="cancelDrag"
-        @keydown.esc="cancelDrag"
         role="img"
         aria-label="线路与列车运行图"
         font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif"
@@ -262,15 +403,15 @@ function description(train: Train) {
             :key="plot.train.id"
             :data-train="plot.train.id"
             class="train-plot"
-            :opacity="selected && selected !== plot.train.id ? 0.6 : 1"
-            @click="emit('select', plot.train.id)"
+            :opacity="activeId && activeId !== plot.train.id ? 0.6 : 1"
+            @pointerdown.stop.prevent="beginTrainDrag($event, plot.train)"
+            @click="if ($event.detail === 0) emit('select', plot.train.id);"
             @keydown.enter="emit('select', plot.train.id)"
             @keydown.space.prevent="emit('select', plot.train.id)"
             tabindex="0"
             role="button"
             :aria-label="`编辑 ${plot.train.name}`"
-            :aria-pressed="selected === plot.train.id"
-            style="cursor: pointer"
+            :aria-pressed="activeId === plot.train.id"
           >
             <title>{{ description(plot.train) }}</title>
             <path
@@ -288,7 +429,7 @@ function description(train: Train) {
               stroke-linejoin="round"
               stroke-linecap="round"
             />
-            <g v-if="selected === plot.train.id" data-interactive="handles">
+            <g v-if="activeId === plot.train.id" data-interactive="handles">
               <circle
                 v-for="(point, i) in plot.points"
                 :key="i"
@@ -377,6 +518,10 @@ function description(train: Train) {
           RAILPLOT
         </text>
       </svg>
+    </div>
+    <div v-if="trainDrag?.moved" class="diagram-drag-status" role="status">
+      {{ trainDrag.train.name }} · {{ trainDrag.delta < 0 ? '提前' : '推迟' }}
+      {{ Math.abs(trainDrag.delta) }} 分钟
     </div>
     <svg
       class="route-overlay"

@@ -213,7 +213,21 @@ export function trainColor(project: Project, train: Train): string {
   );
 }
 
+export interface TrainShift {
+  trainId: string;
+  delta: number;
+}
+
+export function trainShiftBounds(train: Train) {
+  return {
+    min: -minutes(train.stops[0].arrival),
+    max: 4319 - minutes(train.stops.at(-1)!.departure),
+  };
+}
+
 export function shiftTrain(train: Train, delta: number): Train {
+  if (!Number.isInteger(delta)) throw new Error('平移分钟数必须是整数。');
+
   const result = clone(train);
   for (const s of result.stops) {
     const a = minutes(s.arrival) + delta;

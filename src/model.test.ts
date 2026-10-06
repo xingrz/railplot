@@ -6,6 +6,7 @@ import {
   moveTimePoint,
   parseProject,
   shiftTrain,
+  trainShiftBounds,
   timeString,
   validate,
 } from './model';
@@ -45,6 +46,17 @@ describe('工程文件与运行时刻', () => {
       );
     });
     expect(() => shiftTrain(t, -10)).toThrow();
+  });
+
+  it('整趟拖动边界覆盖所有到发时刻，允许跨日但不越过文件时间范围', () => {
+    const train = demo().trains[0];
+    const bounds = trainShiftBounds(train);
+    expect(shiftTrain(train, bounds.min).stops[0].arrival).toBe('00:00');
+    expect(shiftTrain(train, bounds.max).stops.at(-1)!.departure).toBe('71:59');
+    expect(() => shiftTrain(train, bounds.min - 1)).toThrow();
+    expect(() => shiftTrain(train, bounds.max + 1)).toThrow();
+    expect(shiftTrain(train, 1440).stops[0].arrival).toBe('24:05');
+    expect(() => shiftTrain(train, 0.5)).toThrow('整数');
   });
 
   it('无效导入被拒绝', () => {

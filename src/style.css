@@ -164,6 +164,10 @@ main {
 .diagram-viewport {
   position: relative;
   min-width: 0;
+  cursor: grab;
+  user-select: none;
+  touch-action: pan-y;
+  outline: none;
 }
 .diagram-scroll {
   overflow-x: auto;
@@ -187,6 +191,27 @@ main {
 }
 .train-plot:focus-visible > path:not([data-interactive]) {
   stroke-width: 3.5;
+}
+.train-plot {
+  cursor: grab;
+  touch-action: none;
+}
+.diagram-dragging,
+.diagram-dragging .train-plot {
+  cursor: grabbing;
+}
+.diagram-drag-status {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2;
+  padding: 6px 10px;
+  border: 1px solid #a9c1b2;
+  border-radius: 6px;
+  background: #fafbf8;
+  color: #326b57;
+  font-size: 12px;
+  pointer-events: none;
 }
 .time-handle {
   cursor: ew-resize;
