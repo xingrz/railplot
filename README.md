@@ -62,12 +62,14 @@ npm run dev
 
 ## 开发
 
-Vue 3 + TypeScript + Vite，SVG 绘图，Canvas 导出 PNG，按需加载 jsPDF + svg2pdf.js 生成矢量 PDF。中文字体随应用本地提供，导出时按需加载；字体适用独立的 SIL OFL 1.1，详见 `public/fonts/README.md`。
+Vue 3 + TypeScript + Vite，Naive UI 提供通用控件，SVG 绘图，Canvas 导出 PNG，按需加载 jsPDF + svg2pdf.js 生成矢量 PDF。中文字体随应用本地提供，导出时按需加载；字体适用独立的 SIL OFL 1.1，详见 `public/fonts/README.md`。
 
 ```sh
 npm test
 npm run build
 npm run format:check
 ```
+
+架构、选型取舍与维护验证见 [架构说明](docs/architecture.md)。
 
 MIT License。

@@ -8,9 +8,15 @@ TypeScript + Vue 3 + Vite 的纯前端列车运行图编辑器。界面、错误
 - `src/demo.ts`：虚构演示工程，不可加入私人附件或未经许可的素材。
 - `src/components/Diagram.vue`：运行图 SVG 与横向缩放／滚动。
 - `src/components/RouteLayer.vue`：屏幕固定左栏与完整导出共用的线路 SVG；站点纵坐标必须与运行图一致。
-- `src/App.vue`：工程状态、撤销重做、本地保存和编辑交互。
+- `src/App.vue`：组件库主题与上下文提供者。
+- `src/components/RailplotWorkspace.vue`：工作区组合、文件与列车操作。
+- `src/components/TrainEditor.vue`、`NetworkEditor.vue`、`ProjectSettings.vue`：显式双向模型的领域表单。
+- `src/composables/useProjectState.ts`：草稿、有效快照、历史与本地保存。
+- `src/theme.ts`：Naive UI 的类型化主题；通用控件使用库组件，不覆盖内部类名。
 - `src/export.ts`：工程下载、PNG/SVG/PDF 导出。
 - `src/style.css`：响应式界面与视觉样式。
+
+架构与取舍见 `docs/architecture.md`。表单使用组件库，领域模型不依赖 Vue 或 UI 库；不要为简单操作引入通用命令框架或第二份工程状态。
 
 ## 必须保持
 
