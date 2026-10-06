@@ -83,10 +83,14 @@ async function renderPdf(svg: SVGSVGElement, project: Project): Promise<void> {
     loadPdfFont(),
   ]);
   const { width, height } = svg.viewBox.baseVal;
+  // 超长图幅等比缩放到 PDF 的页面上限，仍保留完整矢量内容。
+  const pageScale = Math.min(1, 14400 / Math.max(width, height));
+  const pageWidth = width * pageScale;
+  const pageHeight = height * pageScale;
   const pdf = new jsPDF({
     orientation: width > height ? 'landscape' : 'portrait',
     unit: 'pt',
-    format: [width, height],
+    format: [pageWidth, pageHeight],
     compress: true,
     putOnlyUsedFonts: true,
   });
@@ -129,13 +133,17 @@ async function renderPdf(svg: SVGSVGElement, project: Project): Promise<void> {
     }
   });
 
-  await svg2pdf(svg, pdf, { x: 0, y: 0, width, height });
+  await svg2pdf(svg, pdf, { x: 0, y: 0, width: pageWidth, height: pageHeight });
   pdf.save(`${safeName(project.name)}.pdf`);
 }
 
 async function renderPng(svg: SVGSVGElement, name: string): Promise<void> {
   const { width, height } = svg.viewBox.baseVal;
-  const scale = Math.min(3, 12000 / Math.max(width, height));
+  const scale = Math.min(
+    3,
+    32760 / Math.max(width, height),
+    Math.sqrt(32_000_000 / (width * height)),
+  );
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(height * scale);

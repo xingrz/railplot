@@ -226,24 +226,87 @@ export function shiftTrain(train: Train, delta: number): Train {
   return result;
 }
 
+export type TimePointKind = 'arrival' | 'departure' | 'pass';
+
+export interface TimePointEdit {
+  trainId: string;
+  stopIndex: number;
+  kind: TimePointKind;
+  minute: number;
+}
+
+export function timePointBounds(
+  train: Train,
+  stopIndex: number,
+  kind: TimePointKind,
+) {
+  const stop = train.stops[stopIndex];
+  const previous = train.stops[stopIndex - 1];
+  const next = train.stops[stopIndex + 1];
+  const earliest = previous
+    ? minutes(previous.departure) + (previous.station === stop.station ? 0 : 1)
+    : 0;
+  const latest = next
+    ? minutes(next.arrival) - (next.station === stop.station ? 0 : 1)
+    : 4319;
+
+  return {
+    min: kind === 'departure' ? minutes(stop.arrival) : earliest,
+    max: kind === 'arrival' ? minutes(stop.departure) : latest,
+  };
+}
+
+export function moveTimePoint(
+  train: Train,
+  stopIndex: number,
+  kind: TimePointKind,
+  requested: number,
+): Train {
+  const bounds = timePointBounds(train, stopIndex, kind);
+  const minute = Math.max(
+    bounds.min,
+    Math.min(bounds.max, Math.round(requested)),
+  );
+  const result = clone(train);
+  const stop = result.stops[stopIndex];
+
+  if (kind !== 'departure') stop.arrival = timeString(minute);
+  if (kind !== 'arrival') stop.departure = timeString(minute);
+
+  return result;
+}
+
 export interface Point {
+  stopIndex: number;
+  kind: TimePointKind;
   x: number;
   y: number;
   time: string;
   station: string;
 }
 
-export function geometry(project: Project) {
+export const MIN_MINUTE_WIDTH = 12;
+
+export function geometry(project: Project, viewportWidth = 1460, zoom = 100) {
   const sorted = [...project.stations].sort((a, b) => a.position - b.position);
   const legendHeight =
     Math.max(0, Math.ceil(project.groups.length / 6) - 1) * 20;
-  const height = Math.max(580, sorted.length * 66 + 160) + legendHeight;
+  const height = Math.max(580, sorted.length * 66 + 160) + legendHeight + 24;
   const top = 106 + legendHeight;
-  const bottom = height - 78;
+  const bottom = height - 102;
   const left = 264;
-  const right = 1428;
   const start = minutes(project.time.start);
   const end = minutes(project.time.end);
+  const duration = end - start;
+  const fittedMinuteWidth = (viewportWidth - left - 32) / duration;
+  const minuteWidth =
+    Math.max(MIN_MINUTE_WIDTH, fittedMinuteWidth) * Math.max(1, zoom / 100);
+  const right = left + duration * minuteWidth;
+  const width = right + 32;
+  const labelEvery =
+    project.time.grid *
+    Math.max(1, Math.ceil(64 / (project.time.grid * minuteWidth)));
+
   const min = sorted[0].position;
   const max = sorted.at(-1)!.position;
   const y = (id: string) =>
@@ -254,8 +317,15 @@ export function geometry(project: Project) {
   const x = (time: string) =>
     left + ((minutes(time) - start) / (end - start)) * (right - left);
   const points = (train: Train): Point[] =>
-    train.stops.flatMap((s) => [
-      { x: x(s.arrival), y: y(s.station), time: s.arrival, station: s.station },
+    train.stops.flatMap((s, stopIndex) => [
+      {
+        x: x(s.arrival),
+        y: y(s.station),
+        time: s.arrival,
+        station: s.station,
+        stopIndex,
+        kind: s.arrival === s.departure ? 'pass' : 'arrival',
+      },
       ...(s.arrival === s.departure
         ? []
         : [
@@ -264,8 +334,25 @@ export function geometry(project: Project) {
               y: y(s.station),
               time: s.departure,
               station: s.station,
+              stopIndex,
+              kind: 'departure' as const,
             },
           ]),
     ]);
-  return { sorted, height, top, bottom, left, right, start, end, x, y, points };
+  return {
+    sorted,
+    width,
+    height,
+    top,
+    bottom,
+    left,
+    right,
+    start,
+    end,
+    minuteWidth,
+    labelEvery,
+    x,
+    y,
+    points,
+  };
 }

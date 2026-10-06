@@ -3,6 +3,7 @@ import { demo } from './demo';
 import {
   geometry,
   minutes,
+  moveTimePoint,
   parseProject,
   shiftTrain,
   timeString,
@@ -83,5 +84,76 @@ describe('工程文件与运行时刻', () => {
     expect(g.y('west')).toBe(g.bottom);
     for (const t of p.trains)
       for (const point of g.points(t)) expect(point.y).toBe(g.y(point.station));
+  });
+});
+
+describe('时间轴缩放与时间点编辑', () => {
+  it('横向放大不改变站位、图高与底部留白', () => {
+    const project = demo();
+    const normal = geometry(project, 1300, 100);
+    const zoomed = geometry(project, 1300, 200);
+
+    expect(zoomed.minuteWidth).toBe(normal.minuteWidth * 2);
+    expect(zoomed.height).toBe(normal.height);
+    expect(zoomed.bottom).toBe(normal.bottom);
+    for (const station of project.stations) {
+      expect(zoomed.y(station.id)).toBe(normal.y(station.id));
+    }
+    expect(normal.height - 23 - (normal.bottom + 44)).toBeGreaterThanOrEqual(
+      32,
+    );
+  });
+
+  it('24 小时图保留分钟格下限，标签不相互挤压', () => {
+    const project = demo();
+    project.time.end = '24:00';
+    project.time.grid = 1;
+    const layout = geometry(project, 1300, 100);
+
+    expect(layout.minuteWidth).toBeGreaterThanOrEqual(12);
+    expect(layout.width).toBeGreaterThan(17000);
+    expect(layout.x('00:01') - layout.x('00:00')).toBeGreaterThanOrEqual(12);
+    expect(layout.labelEvery * layout.minuteWidth).toBeGreaterThanOrEqual(64);
+  });
+});
+
+describe('拖动时刻约束', () => {
+  it('出发点按分钟吸附且保留到达时间', () => {
+    const original = demo().trains[0];
+    const result = moveTimePoint(original, 0, 'departure', 7.6);
+
+    expect(result.stops[0].arrival).toBe('00:05');
+    expect(result.stops[0].departure).toBe('00:08');
+    expect(original.stops[0].departure).toBe('00:06');
+  });
+
+  it('通过点同步移动到发，不越过前后站时刻', () => {
+    const original = demo().trains[0];
+    const result = moveTimePoint(original, 1, 'pass', 12);
+
+    expect(result.stops[1]).toMatchObject({
+      arrival: '00:12',
+      departure: '00:12',
+    });
+    expect(moveTimePoint(original, 1, 'pass', 0).stops[1].arrival).toBe(
+      '00:07',
+    );
+    expect(moveTimePoint(original, 1, 'pass', 30).stops[1].departure).toBe(
+      '00:13',
+    );
+  });
+
+  it('到达不能晚于发车，出发不能越过下一站到达', () => {
+    const original = demo().trains[0];
+
+    expect(moveTimePoint(original, 0, 'arrival', 20).stops[0].arrival).toBe(
+      '00:06',
+    );
+    expect(moveTimePoint(original, 0, 'departure', 20).stops[0].departure).toBe(
+      '00:09',
+    );
+    expect(moveTimePoint(original, 0, 'arrival', -10).stops[0].arrival).toBe(
+      '00:00',
+    );
   });
 });

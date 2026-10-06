@@ -384,18 +384,6 @@ h1 {
   display: block;
   height: auto;
 }
-.diagram-footer {
-  padding: 11px 19px;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  border-top: 1px solid #e9eee5;
-  font-size: 10px;
-  color: #96a18f;
-}
-.diagram-footer > span {
-  margin-right: auto;
-}
 .live-dot {
   margin-right: 6px;
 }
@@ -1004,22 +992,11 @@ h1 {
   .modal-backdrop {
     padding: 12px;
   }
-  .diagram-footer {
-    gap: 8px;
-    font-size: 9px;
-  }
-  .diagram-footer > .text-button {
-    display: none;
-  }
 }
 
 .color-reset {
   height: 33px;
   margin-left: -5px;
-}
-
-.diagram-footer {
-  justify-content: flex-end;
 }
 
 .page-footer {
@@ -1032,4 +1009,48 @@ h1 {
     justify-content: flex-start;
     min-width: 0;
   }
+}
+
+.display-option {
+  font-size: 11px;
+  color: #6e7c71;
+  margin-right: 8px;
+}
+
+.diagram-viewport {
+  position: relative;
+  min-width: 0;
+}
+
+.diagram-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.route-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  border-right: 1px solid #e4e9e3;
+}
+
+.train-plot:focus,
+.time-handle:focus {
+  outline: none;
+}
+
+.train-plot:focus-visible > path:not([data-interactive]) {
+  stroke-width: 3.5;
+}
+
+.time-handle {
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.time-handle:hover,
+.time-handle:focus-visible {
+  stroke-width: 3;
+  r: 6;
 }

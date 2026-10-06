@@ -25,13 +25,14 @@ import Diagram from './components/Diagram.vue';
 import {
   clone,
   minutes,
+  moveTimePoint,
   parseProject,
   shiftTrain,
   timeString,
   trainColor,
   validate,
 } from './model';
-import type { Project, Train } from './model';
+import type { Project, TimePointEdit, Train } from './model';
 import { demo } from './demo';
 import { exportImage, saveProject } from './export';
 
@@ -143,6 +144,24 @@ const outside = computed(
 
 const stationName = (id: string) =>
   draft.value.stations.find((s) => s.id === id)?.name ?? '未知站';
+
+function toggleTrainSelection(id: string) {
+  selectedId.value = selectedId.value === id ? '' : id;
+}
+
+function editTimePoint(edit: TimePointEdit) {
+  const index = draft.value.trains.findIndex(
+    (train) => train.id === edit.trainId,
+  );
+  if (index < 0 || errors.value.length) return;
+
+  draft.value.trains[index] = moveTimePoint(
+    draft.value.trains[index],
+    edit.stopIndex,
+    edit.kind,
+    edit.minute,
+  );
+}
 
 function replace(project: Project) {
   draft.value = project;
@@ -434,6 +453,9 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
             <span class="pill">
               {{ valid.time.start }} — {{ valid.time.end }}
             </span>
+            <span v-if="outside" class="outside">
+              {{ outside }} 趟列车超出图幅
+            </span>
           </div>
           <div class="toolbar-group">
             <button class="button quiet compact" @click="modal = 'network'">
@@ -464,6 +486,10 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
               <Redo2 :size="16" />
             </button>
             <div class="toolbar-divider" />
+            <label class="checkbox display-option">
+              <input type="checkbox" v-model="labels" />
+              车次标签
+            </label>
             <button
               class="icon-button"
               :disabled="zoom <= 100"
@@ -491,20 +517,9 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
           :selected="selectedId"
           :zoom="zoom"
           :labels="labels"
-          @select="selectedId = $event"
+          @select="toggleTrainSelection"
+          @edit-time="editTimePoint"
         />
-        <div class="diagram-footer">
-          <span v-if="outside" class="outside">
-            {{ outside }} 趟列车超出图幅
-          </span>
-          <button class="text-button" @click="selectedId = ''">
-            查看全部列车
-          </button>
-          <label class="checkbox">
-            <input type="checkbox" v-model="labels" />
-            车次标签
-          </label>
-        </div>
       </section>
       <section class="editor-grid">
         <aside class="train-panel">
@@ -534,7 +549,8 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
               :key="train.id"
               class="train-item"
               :class="{ active: selectedId === train.id }"
-              @click="selectedId = train.id"
+              :aria-pressed="selectedId === train.id"
+              @click="toggleTrainSelection(train.id)"
             >
               <span
                 class="train-color"
