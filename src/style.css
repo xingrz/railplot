@@ -513,3 +513,42 @@ main {
     flex-wrap: wrap;
   }
 }
+
+.route-builder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 24px;
+  padding-top: 12px;
+}
+.route-builder-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.route-builder-form .form-help {
+  margin-bottom: 0;
+}
+.route-preview {
+  width: 200px;
+  height: 400px;
+  background: #fafbf8;
+  border-radius: 6px;
+}
+.route-preview-stations {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+@media (max-width: 600px) {
+  .route-builder {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .route-preview {
+    justify-self: center;
+  }
+}
+
+.network-detail {
+  padding-top: 20px;
+}

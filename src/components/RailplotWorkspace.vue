@@ -513,7 +513,11 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
       @update:show="!$event && (modal = null)"
     >
       <ProjectSettings v-if="modal === 'settings'" v-model:project="draft" />
-      <NetworkEditor v-else-if="modal === 'network'" v-model:project="draft" />
+      <NetworkEditor
+        v-else-if="modal === 'network'"
+        v-model:project="draft"
+        @applied="modal = null"
+      />
       <template v-else>
         <p class="form-help">
           .railplot 是带版本号的 JSON 文件。可在这里批量编辑，校验通过后再应用。
@@ -537,7 +541,13 @@ onUnmounted(() => window.removeEventListener('keydown', shortcut));
           <NButton v-if="modal === 'json'" type="primary" @click="applyJson">
             应用数据
           </NButton>
-          <NButton v-else type="primary" @click="modal = null">完成</NButton>
+          <NButton
+            v-else
+            :type="modal === 'network' ? 'default' : 'primary'"
+            @click="modal = null"
+          >
+            {{ modal === 'network' ? '关闭' : '完成' }}
+          </NButton>
         </div>
       </template>
     </NModal>

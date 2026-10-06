@@ -1,27 +1,18 @@
 <script setup lang="ts">
 import type { Project, geometry } from '../model';
+import { laneColors, laneX, routeSegment } from '../routeGeometry';
 
 const props = defineProps<{
   project: Project;
   layout: ReturnType<typeof geometry>;
 }>();
 
-const laneColors = ['#337563', '#bd925c', '#6b8cae', '#a286ad'];
-const laneX = (lane: number) => 44 + lane * 34;
-
-function route(link: { from: string; to: string }) {
+function segment(link: { from: string; to: string }) {
   const from = props.project.stations.find(
     (station) => station.id === link.from,
   )!;
   const to = props.project.stations.find((station) => station.id === link.to)!;
-  const x1 = laneX(from.lane);
-  const x2 = laneX(to.lane);
-  const y1 = props.layout.y(from.id);
-  const y2 = props.layout.y(to.id);
-
-  return x1 === x2
-    ? `M${x1},${y1}V${y2}`
-    : `M${x1},${y1}L${x2},${Math.min(y1 + 26, y2 - 8)}V${y2}`;
+  return routeSegment(from, to, props.layout.y(from.id), props.layout.y(to.id));
 }
 </script>
 
@@ -51,13 +42,11 @@ function route(link: { from: string; to: string }) {
     <path
       v-for="(link, index) in project.links"
       :key="index"
-      :d="route(link)"
+      :d="segment(link).path"
+      :data-route-from="link.from"
+      :data-route-to="link.to"
       fill="none"
-      :stroke="
-        laneColors[
-          project.stations.find((station) => station.id === link.to)!.lane
-        ]
-      "
+      :stroke="segment(link).color"
       stroke-width="5"
       stroke-linecap="round"
       stroke-linejoin="round"

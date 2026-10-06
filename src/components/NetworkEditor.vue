@@ -1,11 +1,32 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { NButton, NFormItem, NInputNumber, NSelect, NTable } from 'naive-ui';
-import { ArrowRight, GitBranch, Plus, Trash2, X } from 'lucide-vue-next';
+import {
+  NAlert,
+  NButton,
+  NDropdown,
+  NFormItem,
+  NInputNumber,
+  NSelect,
+  NTable,
+  NRadioGroup,
+  NRadioButton,
+} from 'naive-ui';
+import { ArrowRight, Plus, Trash2, X } from 'lucide-vue-next';
 import CommitInput from './CommitInput.vue';
+import RouteBuilder from './RouteBuilder.vue';
+import { planRoute } from '../network';
 import type { Project } from '../model';
 
 const project = defineModel<Project>('project', { required: true });
+const emit = defineEmits<{ applied: [] }>();
+const editError = ref('');
+const mode = ref<'batch' | 'detail'>('batch');
+const addOptions = [
+  { label: '向下延伸', key: 'down' },
+  { label: '向上延伸', key: 'up' },
+  { label: '向下分出支线', key: 'branch-down' },
+  { label: '从上方汇入支线', key: 'branch-up' },
+];
 const branchFrom = ref(
   project.value.stations[2]?.id ?? project.value.stations[0].id,
 );
@@ -26,24 +47,37 @@ function stationInUse(id: string) {
   );
 }
 
-function addStation(branch: boolean) {
-  const stations = [...project.value.stations].sort(
-    (a, b) => a.position - b.position,
+function addStation(action: string) {
+  const anchor = project.value.stations.find(
+    (station) => station.id === branchFrom.value,
   );
-  const anchor =
-    stations.find((station) => station.id === branchFrom.value) ??
-    stations.at(-1)!;
-  let position = branch ? anchor.position + 8 : stations.at(-1)!.position + 15;
-  while (stations.some((station) => station.position === position)) position++;
+  if (!anchor) return;
 
-  const id = crypto.randomUUID();
-  project.value.stations.push({
-    id,
-    name: branch ? '支线新站' : '新车站',
-    position,
-    lane: branch ? Math.min(anchor.lane + 1, 3) : anchor.lane,
-  });
-  project.value.links.push({ from: anchor.id, to: id });
+  const branch = action.startsWith('branch-');
+  const baseName = branch ? '支线新站' : '新车站';
+  let name = baseName;
+  let suffix = 2;
+  while (project.value.stations.some((station) => station.name === name))
+    name = `${baseName} ${suffix++}`;
+  const names = action.endsWith('up')
+    ? [name, anchor.name]
+    : [anchor.name, name];
+
+  try {
+    project.value = planRoute(
+      project.value,
+      names.join(' → '),
+      anchor.lane + (branch ? 1 : 0),
+    ).project;
+    editError.value = '';
+  } catch (error) {
+    editError.value = (error as Error).message;
+  }
+}
+
+function applyRoute(next: Project) {
+  project.value = next;
+  emit('applied');
 }
 
 function removeStation(id: string) {
@@ -67,128 +101,130 @@ function addLink() {
 </script>
 
 <template>
-  <p class="form-help">
-    站位从上向下递增。主线放在第 0 列，支线放在第 1–3
-    列；站位决定运行图纵向间距，不代表实际里程。
-  </p>
-  <div class="table-scroll">
-    <NTable size="small" :bordered="false" class="network-table">
-      <thead>
-        <tr>
-          <th>车站</th>
-          <th>站位</th>
-          <th>线路列</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="station in project.stations" :key="station.id">
-          <td>
-            <CommitInput
-              v-model="station.name"
-              label="车站名称"
-              :maxlength="100"
-            />
-          </td>
-          <td>
-            <NInputNumber
-              :value="station.position"
-              size="small"
-              :show-button="false"
-              :update-value-on-input="false"
-              :input-props="{ 'aria-label': '站位' }"
-              @update:value="station.position = $event ?? 0"
-            />
-          </td>
-          <td>
-            <NSelect
-              filterable
-              v-model:value="station.lane"
-              size="small"
-              :options="laneOptions"
-              :input-props="{ 'aria-label': '线路列' }"
-            />
-          </td>
-          <td>
-            <NButton
-              size="small"
-              quaternary
-              type="error"
-              :disabled="
-                project.stations.length <= 2 || stationInUse(station.id)
-              "
-              :title="
-                stationInUse(station.id) ? '这座车站仍有列车到发' : '删除车站'
-              "
-              :aria-label="`删除 ${station.name}`"
-              @click="removeStation(station.id)"
-            >
-              <template #icon><Trash2 :size="14" /></template>
-            </NButton>
-          </td>
-        </tr>
-      </tbody>
-    </NTable>
+  <NRadioGroup v-model:value="mode" size="small" aria-label="线路编辑方式">
+    <NRadioButton value="batch">批量建线</NRadioButton>
+    <NRadioButton value="detail">逐项调整</NRadioButton>
+  </NRadioGroup>
+  <div v-show="mode === 'batch'">
+    <RouteBuilder :project="project" @apply="applyRoute" />
   </div>
-  <div class="network-add">
-    <NFormItem label="接轨站" size="small" :show-feedback="false">
+  <div v-show="mode === 'detail'" class="network-detail">
+    <NAlert v-if="editError" type="warning" class="notice">
+      {{ editError }}
+    </NAlert>
+    <p class="form-help">
+      站位从上向下递增。主线放在第 0 列，支线放在第 1–3
+      列；站位决定运行图纵向间距，不代表实际里程。
+    </p>
+    <div class="table-scroll">
+      <NTable size="small" :bordered="false" class="network-table">
+        <thead>
+          <tr>
+            <th>车站</th>
+            <th>站位</th>
+            <th>线路列</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="station in project.stations" :key="station.id">
+            <td>
+              <CommitInput
+                v-model="station.name"
+                label="车站名称"
+                :maxlength="100"
+              />
+            </td>
+            <td>
+              <NInputNumber
+                :value="station.position"
+                size="small"
+                :show-button="false"
+                :update-value-on-input="false"
+                :input-props="{ 'aria-label': '站位' }"
+                @update:value="station.position = $event ?? 0"
+              />
+            </td>
+            <td>
+              <NSelect
+                filterable
+                v-model:value="station.lane"
+                size="small"
+                :options="laneOptions"
+                :input-props="{ 'aria-label': '线路列' }"
+              />
+            </td>
+            <td>
+              <NButton
+                size="small"
+                quaternary
+                type="error"
+                :disabled="
+                  project.stations.length <= 2 || stationInUse(station.id)
+                "
+                :title="
+                  stationInUse(station.id) ? '这座车站仍有列车到发' : '删除车站'
+                "
+                :aria-label="`删除 ${station.name}`"
+                @click="removeStation(station.id)"
+              >
+                <template #icon><Trash2 :size="14" /></template>
+              </NButton>
+            </td>
+          </tr>
+        </tbody>
+      </NTable>
+    </div>
+    <div class="network-add">
+      <NFormItem label="接轨站" size="small" :show-feedback="false">
+        <NSelect
+          filterable
+          v-model:value="branchFrom"
+          size="small"
+          :options="stationOptions"
+          :input-props="{ 'aria-label': '接轨站' }"
+        />
+      </NFormItem>
+      <NDropdown trigger="click" :options="addOptions" @select="addStation">
+        <NButton size="small" :disabled="project.stations.length >= 60">
+          <template #icon><Plus :size="14" /></template>
+          新增车站
+        </NButton>
+      </NDropdown>
+    </div>
+    <h3>线路连接</h3>
+    <div
+      v-for="(link, index) in project.links"
+      :key="index"
+      class="connection-row"
+    >
       <NSelect
         filterable
-        v-model:value="branchFrom"
+        v-model:value="link.from"
         size="small"
         :options="stationOptions"
-        :input-props="{ 'aria-label': '接轨站' }"
+        :input-props="{ 'aria-label': '连接起站' }"
       />
-    </NFormItem>
-    <NButton
-      size="small"
-      :disabled="project.stations.length >= 60"
-      @click="addStation(false)"
-    >
+      <ArrowRight :size="15" />
+      <NSelect
+        filterable
+        v-model:value="link.to"
+        size="small"
+        :options="stationOptions"
+        :input-props="{ 'aria-label': '连接终站' }"
+      />
+      <NButton
+        size="small"
+        quaternary
+        aria-label="删除连接"
+        @click="project.links.splice(index, 1)"
+      >
+        <template #icon><X :size="14" /></template>
+      </NButton>
+    </div>
+    <NButton text size="small" @click="addLink">
       <template #icon><Plus :size="14" /></template>
-      向下延伸
-    </NButton>
-    <NButton
-      size="small"
-      :disabled="project.stations.length >= 60"
-      @click="addStation(true)"
-    >
-      <template #icon><GitBranch :size="14" /></template>
-      引出支线
+      添加连接
     </NButton>
   </div>
-  <h3>线路连接</h3>
-  <div
-    v-for="(link, index) in project.links"
-    :key="index"
-    class="connection-row"
-  >
-    <NSelect
-      filterable
-      v-model:value="link.from"
-      size="small"
-      :options="stationOptions"
-      :input-props="{ 'aria-label': '连接起站' }"
-    />
-    <ArrowRight :size="15" />
-    <NSelect
-      filterable
-      v-model:value="link.to"
-      size="small"
-      :options="stationOptions"
-      :input-props="{ 'aria-label': '连接终站' }"
-    />
-    <NButton
-      size="small"
-      quaternary
-      aria-label="删除连接"
-      @click="project.links.splice(index, 1)"
-    >
-      <template #icon><X :size="14" /></template>
-    </NButton>
-  </div>
-  <NButton text size="small" @click="addLink">
-    <template #icon><Plus :size="14" /></template>
-    添加连接
-  </NButton>
 </template>
